@@ -1,0 +1,542 @@
+#include <string>
+#include <iostream>
+#include <SDL.h>
+#include <SDL_image.h>
+#include <time.h>
+#include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <vector>
+#include <fstream>
+
+using namespace std;
+
+#define PI 3.14159265
+#define sgn(X) (((X)==0)?(0):(((X)<0)?(-1):(1)))
+#define WIDTH_SCREEN 640
+#define HEIGHT_SCREEN 480
+#define TILE_SIZE 32
+#define LARGEUR_MONDE 4*640
+#define HAUTEUR_MONDE 480
+#define NB_TILES_X LARGEUR_MONDE/TILE_SIZE
+#define NB_TILES_Y HAUTEUR_MONDE/TILE_SIZE
+#define CACHE_SIZE 256
+#define SPEED 2.5f
+
+SDL_Window* window=0;
+SDL_Renderer* renderer=0;
+SDL_Texture* bgd1=0;
+SDL_Texture* brick1=0;
+SDL_Texture* brick2=0;
+SDL_Texture* detective=0;
+SDL_Texture* tileset1=0;
+SDL_Rect perso;
+SDL_Rect camera;
+//const Uint8 *state=0
+
+typedef enum
+{
+    DROITE, GAUCHE, HAUT, BAS
+} Sens;
+
+typedef struct
+{
+    int tilemap[CACHE_SIZE][CACHE_SIZE];
+    int LARGEUR_TILE,HAUTEUR_TILE;
+    int nbtilesX,nbtilesY;
+    SDL_Texture* tileset;
+    SDL_Rect tile[CACHE_SIZE];
+    //int mur;
+    //Uint16** schema;
+    int xscroll,yscroll;
+} Map;
+
+typedef struct
+{
+    bool dir[4]={0,0,0,0};
+    bool mouse[2]={0,0};
+    bool space=0;
+    bool saveMap=0;
+    int tileType=0;
+} Input;
+
+typedef struct
+{
+    float x, y;
+    float vx, vy;
+    bool air;
+} Sprite;
+
+void init();
+void close();
+void Scrolling();
+void SidesCollision(int tile_map[CACHE_SIZE][CACHE_SIZE],SDL_Rect*test,
+    int largeur_tile,int hauteur_tile);
+void UpdateEvents(Input*);
+int mapReader(int t[CACHE_SIZE][CACHE_SIZE],int nbTiles_y,int nbTiles_x,const char* fichier);
+int mapWrite(int t[CACHE_SIZE][CACHE_SIZE],int nbTiles_y,int nbTiles_x,const char* fichier);
+bool BoxCollision(SDL_Rect box1,SDL_Rect box2);
+int TileCollision(SDL_Rect *test,int tile_map[CACHE_SIZE][CACHE_SIZE],int largeur_tile,int hauteur_tile);
+int BoxCollisionVelocity(SDL_Rect box1,float vx,float vy,SDL_Rect box2,float vx2,float vy2);
+int EssaiDeplacement(int tile_map[256][256],SDL_Rect *perso,float vx,float vy);
+void Affine(SDL_Rect *perso,int tile_map[256][256],float vx,float vy);
+SDL_Texture* loadTexture(const char* fichier);
+void Load_tileset(Map* m);
+void RecupererVecteur(float*vx,float*vy,const Uint8 *state);
+void Move(int tile_map[256][256],SDL_Rect *perso,const Uint8 *keys,bool jump,float vx,float vy);
+void Jumping(SDL_Rect*perso,float *vy,const Uint8 *keys,bool jump);
+int Sol(int tile_map[CACHE_SIZE][CACHE_SIZE],SDL_Rect*test);
+int ChangeTile(int type,const Uint8* keys);
+
+Y(float*vy) { *vy += 0.1; }
+
+int main( int argc, char * argv[] )
+{
+    Input in;
+    Sens dir;
+    //Sprite perso = {};
+    perso = {4*TILE_SIZE,3*TILE_SIZE,TILE_SIZE,TILE_SIZE};
+    camera = {0,0,WIDTH_SCREEN,HEIGHT_SCREEN};
+    Map* carte;
+    init();
+    bgd1 = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGBA8888,
+        SDL_TEXTUREACCESS_TARGET,LARGEUR_MONDE,HAUTEUR_MONDE);
+    brick1=loadTexture("brick1.png");
+    brick2=loadTexture("brick2.png");
+    detective=loadTexture("walk.png");
+
+    SDL_Rect anim[5];
+    for (int i = 0; i < 5; ++i) anim[i]={i*32,0,32,32};
+
+    Uint32 last = 0, current = 0;
+    int tile_map[CACHE_SIZE][CACHE_SIZE],map_platform[CACHE_SIZE][CACHE_SIZE],
+    t=0,countedFrames=0,frame=0,tile_type;
+    float vitesse_perso_x=0,vitesse_perso_y=0,frameTime=0,xpos=perso.x,ypos=perso.y;
+    bool face=1,shot=0,jump=0;
+
+
+    mapReader(map_platform,NB_TILES_Y,NB_TILES_X,"map_platform.txt");
+    mapReader(tile_map,NB_TILES_Y,NB_TILES_X,"map.txt");
+    //mapReader(carte->tilemap,NB_TILES_Y,NB_TILES_X,"map.txt");
+
+    /*for (int i = 0; i < NB_TILES_Y; ++i)
+        for (int j = 0; j < NB_TILES_X; ++j)
+            switch (map_platform[j][i])
+            {
+                case 1: plat.push_back({{i*32,j*32,3*32,32},-1,0}); break;
+            }*/
+
+    while(1) {
+        UpdateEvents(&in);
+        const Uint8 *state = SDL_GetKeyboardState(NULL);
+        /*last = current;
+        current = SDL_GetTicks();
+        float timeElapsedSinceLastFrame = (current - last)/1000.0f;*/
+        float timeElapsedSinceLastFrame = (SDL_GetTicks() - last)/1000.0f;
+        last = SDL_GetTicks();
+        float avgFPS = countedFrames / (SDL_GetTicks()/1000.0f);
+        if( avgFPS > 2000000 ) avgFPS = 0;
+        int x, y;
+        SDL_GetMouseState( &x, &y );
+
+        Y(&vitesse_perso_y);
+        cout<<vitesse_perso_y<<endl;
+
+        //Move(tile_map,&perso,state,jump,0,vitesse_perso_y);
+
+        //Load_tileset(carte);
+
+        Scrolling();
+
+        tile_type=ChangeTile(tile_type,state);
+        //cout<<tile_type<<endl;
+        if (in.mouse[0]) tile_map[(y+camera.y)/TILE_SIZE][(x+camera.x)/TILE_SIZE]=tile_type;
+        if (in.mouse[1]) map_platform[(y+camera.y)/TILE_SIZE][(x+camera.x)/TILE_SIZE]=in.tileType;
+        if (in.saveMap)
+            if (!mapWrite(tile_map,NB_TILES_Y,NB_TILES_X,"map.txt")&&
+            !mapWrite(map_platform,NB_TILES_Y,NB_TILES_X,"platform.txt")) in.saveMap=false;
+        //cout<<in.saveMap<<endl;
+
+        SDL_SetRenderTarget(renderer, bgd1);
+        SDL_RenderClear(renderer);
+
+        for (int i=camera.y/TILE_SIZE; i<(camera.y+camera.h+TILE_SIZE)/TILE_SIZE; ++i) {
+            for (int j=camera.x/TILE_SIZE; j<(camera.x+camera.w+TILE_SIZE)/TILE_SIZE; ++j)
+            {
+                SDL_Rect dst = {j*TILE_SIZE,i*TILE_SIZE,TILE_SIZE,TILE_SIZE};
+                switch (tile_map[i][j])
+                {
+                    case 1:
+                        SDL_SetRenderDrawColor(renderer,80,40,20,255);
+                        SDL_RenderFillRect(renderer, &dst);
+                        break;
+                    case 2:
+                        SDL_RenderCopy(renderer, brick2, NULL, &dst);
+                        break;
+                    case 3:
+                        SDL_SetRenderDrawColor(renderer,135,127,125,255);
+                        SDL_RenderFillRect(renderer, &dst);
+                        break;
+                    case 4:
+                        SDL_RenderCopy(renderer, brick1, NULL, &dst);
+                        break;
+                }
+                switch (map_platform[i][j])
+                {
+                    case 1:
+                        SDL_SetRenderDrawColor(renderer,255,40,20,255);
+                        SDL_RenderFillRect(renderer, &dst);
+                        break;
+                }
+            }
+        }
+        SDL_RenderCopy(renderer, detective, &anim[frame/8], &perso);
+        ++frame;
+        if( frame / 8 >= 5 ) frame = 0;
+
+        //SDL_SetRenderDrawColor(renderer, 100, 0, 0, 255);
+        //SDL_RenderFillRect(renderer, &perso);
+
+        //for (auto &it : Objects) SDL_RenderFillRect(renderer, &it.r);
+        SDL_SetRenderTarget(renderer, NULL);
+        SDL_RenderCopy(renderer, bgd1, &camera, NULL);
+        SDL_RenderPresent(renderer);
+        countedFrames++;
+    }
+    close();
+    return 0;
+}
+
+void Jumping(SDL_Rect*perso,float *vy,const Uint8 *keys,bool jump)
+{
+    //bool stick_on_the_ground=Sol(tilemap,perso);
+    //*vy = 0;
+    *vy += 0.1;
+    if (keys[SDL_SCANCODE_UP]) jump=true;
+
+    /*if (jump)                                  // quand la touche espace est enfoncée le saut est enclanché
+       // if (stick_on_the_ground) *vy = -5;    // quand on est au sol
+        //else *vy += 0.1;                       // quand on est en l'air
+    //else *vy = 2;
+    //if (*vy>=3) *vy = 3;*/
+}
+
+void Move(int tile_map[256][256],SDL_Rect *perso,const Uint8 *keys,bool jump,float vx,float vy)
+{
+    //float vx,vy;
+    //RecupererVecteur(&vx,0,keys);
+    //Jumping(perso,&vy,keys,jump);
+    Y(&vy);
+    cout<<vy<<endl;
+
+    /*if (!EssaiDeplacement(tile_map,perso,vx,0))
+        Affine(perso,tile_map,vx,0);
+    if (!EssaiDeplacement(tile_map,perso,0,vy))
+        Affine(perso,tile_map,0,vy);*/
+}
+
+int EssaiDeplacement(int tile_map[256][256],SDL_Rect *perso,float vx,float vy)
+{
+    SDL_Rect test;
+    test = *perso;
+    test.x+=vx;
+    test.y+=vy;
+    if (!TileCollision(&test,tile_map,32,32))
+    {
+        *perso = test;
+        return 1;
+    }
+    return 0;
+}
+
+void Affine(SDL_Rect *perso,int tile_map[256][256],float vx,float vy)
+{
+    for (int i = 0; i < abs(vx); ++i)
+        if (!EssaiDeplacement(tile_map,perso,sgn(vx),0))
+            break;
+    for (int i = 0; i < abs(vy); ++i)
+        if (!EssaiDeplacement(tile_map,perso,0,sgn(vy)))
+            break;
+
+}
+
+void RecupererVecteur(float*vx,float*vy,const Uint8 *state)
+{
+    *vx = 0;// *vy = 0;
+    float vitesse = SPEED;
+
+    if (state[SDL_SCANCODE_LEFT]) *vx += -vitesse;
+    if (state[SDL_SCANCODE_RIGHT]) *vx += vitesse;
+    //if (state[SDL_SCANCODE_UP]) *vy += -vitesse;
+    //if (state[SDL_SCANCODE_DOWN]) *vy += vitesse;
+}
+
+int Sol(int tile_map[CACHE_SIZE][CACHE_SIZE],SDL_Rect*test)
+{
+    int xmin = (test->x)/32;
+    int xmax = (test->x+test->w-1)/32;
+    int ymin = (test->y)/32;
+    int ymax = (test->y+test->h-1)/32;
+
+    if(tile_map[xmin][ymax+1]>0||tile_map[xmax][ymax+1]>0) return 1;
+    return 0;
+}
+
+void Load_tileset(Map* m)
+{
+    //m->tile = malloc(m->nbtilesX*m->nbtilesY*sizeof(int));
+
+    for(int j=0,numtile=0;j<m->nbtilesY;j++)
+    {
+        for(int i=0;i<m->nbtilesX;i++,numtile++)
+        {
+            m->tile[numtile]={i*m->LARGEUR_TILE,j*m->HAUTEUR_TILE,m->LARGEUR_TILE,m->HAUTEUR_TILE};
+        }
+    }
+}
+
+int AfficherMap(Map* m,SDL_Texture* screen)
+{
+    SDL_Rect Rect_dest;
+
+    int minx = m->xscroll / m->LARGEUR_TILE;
+    int miny = m->yscroll / m->HAUTEUR_TILE;
+    int maxx = (m->xscroll + WIDTH_SCREEN)/m->LARGEUR_TILE;
+    int maxy = (m->yscroll + HEIGHT_SCREEN)/m->HAUTEUR_TILE;
+
+    for (int i=camera.y/TILE_SIZE,numtile=0; i<(camera.y+camera.h+TILE_SIZE)/TILE_SIZE; ++i) {
+        for (int j=camera.x/TILE_SIZE; j<(camera.x+camera.w+TILE_SIZE)/TILE_SIZE; ++j,++numtile)
+        {
+            Rect_dest.x = i*m->LARGEUR_TILE - m->xscroll;
+            Rect_dest.y = j*m->HAUTEUR_TILE - m->yscroll;
+            //Rect_dest = {j*TILE_SIZE,i*TILE_SIZE,TILE_SIZE,TILE_SIZE};
+
+            SDL_RenderCopy(renderer, screen, &(m->tile[numtile]), &Rect_dest);
+        }
+    }
+}
+
+bool BoxCollision(SDL_Rect box1, SDL_Rect box2)
+{
+    if((box2.x >= box1.x + box1.w)      // trop à droite
+    || (box2.x + box2.w <= box1.x)      // trop à gauche
+    || (box2.y >= box1.y + box1.h)      // trop en bas
+    || (box2.y + box2.h <= box1.y))     // trop en haut
+        return false;
+    else
+        return true;
+}
+
+int BoxCollisionVelocity(SDL_Rect box1,float vx,float vy,SDL_Rect box2,float vx2,float vy2)
+{
+    SDL_Rect r1 = {box1.x+vx,box1.y+vy,box1.w,box1.h};
+    SDL_Rect r2 = {box2.x+vx2,box2.y+vy2,box2.w,box2.h};
+    if (BoxCollision(r1,r2))
+        return true;
+    else
+        return false;
+}
+
+int TileCollision(SDL_Rect *test,int tile_map[CACHE_SIZE][CACHE_SIZE],
+    int largeur_tile,int hauteur_tile)
+{
+    int xmin = (test->x)/largeur_tile;
+    int xmax = (test->x+test->w-1)/largeur_tile;
+    int ymin = (test->y)/hauteur_tile;
+    int ymax = (test->y+test->h-1)/hauteur_tile;
+
+    for (int i = ymin; i <= ymax; i++)
+    {
+        for (int j = xmin; j <= xmax; j++)
+        {
+            if(tile_map[i][j]>1) return 1;
+        }
+    }
+    return 0;
+}
+
+int mapWrite(int t[CACHE_SIZE][CACHE_SIZE],int nbTiles_y,int nbTiles_x,const char* fichier)
+{
+    ofstream file(fichier,ios::trunc);
+    string line;
+
+    if (file.is_open())
+    {
+        for (int i = 0; i < nbTiles_y; ++i)
+        {
+            for (int j = 0; j < nbTiles_x; ++j)
+            {
+                //file << t[i][j] << endl;
+                line.append(t[i][j]+" ");
+            }
+            file << line << endl;
+            line.clear();
+        }
+        return 1;
+    }
+    file.close();
+    return 0;
+}
+
+int mapReader(int t[CACHE_SIZE][CACHE_SIZE],int nbTiles_y,int nbTiles_x,const char* fichier)
+{
+    ifstream file(fichier);
+
+    if(file.is_open())
+    {
+        while(!file.eof())
+        {
+            for (int i = 0; i < nbTiles_y; ++i)
+            {
+                for (int j = 0; j < nbTiles_x; ++j)
+                {
+                    file>>t[i][j];
+                }
+            }
+            return 1;
+        }
+    }
+    file.close();
+    return 0;
+}
+
+SDL_Texture* loadTexture(const char* fichier)
+{
+    SDL_Surface* image = IMG_Load(fichier);
+    //SDL_SetColorKey(image, SDL_TRUE, SDL_MapRGB(image->format, 255, 255, 255));
+    SDL_Texture* monImage = SDL_CreateTextureFromSurface(renderer,image);
+    SDL_FreeSurface(image);
+    return monImage;
+}
+
+void close()
+{
+    SDL_DestroyTexture(brick1);
+    SDL_DestroyTexture(brick2);
+    SDL_DestroyTexture(detective);
+    SDL_DestroyTexture(bgd1);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+}
+
+void init()
+{
+    if (SDL_Init(SDL_INIT_VIDEO) == 0)
+    {
+        window = SDL_CreateWindow("",SDL_WINDOWPOS_UNDEFINED,SDL_WINDOWPOS_UNDEFINED,WIDTH_SCREEN,HEIGHT_SCREEN,0);
+        if (window)
+        {
+            renderer = SDL_CreateRenderer(window,0,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+            if (renderer)
+            {
+                int imgFlags = IMG_INIT_PNG;
+                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            }
+        }
+    }
+}
+
+void Scrolling()
+{
+    camera.x = perso.x-(WIDTH_SCREEN/2+perso.w/2);
+    camera.y = perso.y-(HEIGHT_SCREEN/2+perso.h/2);
+    if (camera.x <= 0) camera.x = 0;
+    if (camera.x + WIDTH_SCREEN >= LARGEUR_MONDE) camera.x = LARGEUR_MONDE - WIDTH_SCREEN;
+    if (camera.y <= 0) camera.y = 0;
+    if (camera.y + HEIGHT_SCREEN >= HAUTEUR_MONDE) camera.y = HAUTEUR_MONDE - HEIGHT_SCREEN;
+}
+
+/*void Anim(Sens* Sprites,const Uint8 *keys,float vx,float vy)
+{
+    if (vx<0) Sprites=GAUCHE;
+    if (vx>0) Sprites=DROITE;
+    if (vy<0) Sprites=HAUT;
+    if (vy>0) Sprites=BAS;
+}*/
+
+/*void Shooting()
+{
+    int time=0;
+
+    if (in.mouse[0]||state[SDL_SCANCODE_X]){
+        if (t>=20){
+            if (dir==DROITE) {bullets.push_back({{perso.x,perso.y,10,10},5,0});}
+            if (dir==GAUCHE) bullets.push_back({{perso.x,perso.y,10,10},-5,0});
+            t=0;
+        }
+        //shot=false
+    }
+}*/
+
+
+
+int ChangeTile(int type,const Uint8* keys)
+{
+    if (keys[SDL_SCANCODE_KP_0]) type=0;
+    if (keys[SDL_SCANCODE_KP_1]) type=1;
+    if (keys[SDL_SCANCODE_KP_2]) type=2;
+    if (keys[SDL_SCANCODE_KP_3]) type=3;
+    if (keys[SDL_SCANCODE_KP_4]) type=4;
+
+    return type;
+}
+
+void UpdateEvents(Input *in)
+{
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if(e.type == SDL_MOUSEWHEEL)
+        {
+            if (e.wheel.y > 0) // scroll up
+            {
+                // ...
+            }
+            else if (e.wheel.y < 0) // scroll down
+            {
+                // ...
+            }
+            if (e.wheel.x > 0) // scroll right
+            {
+                // ...
+            }
+            else if (e.wheel.x < 0) // scroll left
+            {
+                // ...
+            }
+        }
+        if (e.type==SDL_QUIT) SDL_Quit();
+        if (e.type==SDL_KEYDOWN) {
+            switch (e.key.keysym.sym){
+                case SDLK_LEFT: in->dir[0] = true; break;
+                case SDLK_RIGHT: in->dir[1] = true; break;
+                case SDLK_UP: in->dir[2] = true; break;
+                case SDLK_DOWN: in->dir[3] = true; break;
+                case SDLK_c: in->saveMap=true; break;
+                case SDLK_SPACE: in->space = true; break;
+            }
+        }
+        if (e.type==SDL_KEYUP) {
+            switch (e.key.keysym.sym){
+                case SDLK_LEFT: in->dir[0] = false; break;
+                case SDLK_RIGHT: in->dir[1] = false; break;
+                case SDLK_UP: in->dir[2] = false; break;
+                case SDLK_DOWN: in->dir[3] = false; break;
+                case SDLK_c: in->saveMap=false; break;
+                case SDLK_SPACE: in->space = false; break;
+            }
+        }
+        if (e.type==SDL_MOUSEBUTTONDOWN) {
+            switch(e.button.button){
+                case SDL_BUTTON_LEFT: in->mouse[0] = true; break;
+                case SDL_BUTTON_RIGHT: in->mouse[1] = true; break;
+            }
+        }
+        if (e.type==SDL_MOUSEBUTTONUP) {
+            switch(e.button.button){
+                case SDL_BUTTON_LEFT: in->mouse[0] = false; break;
+                case SDL_BUTTON_RIGHT: in->mouse[1] = false; break;
+            }
+        }
+    }
+}

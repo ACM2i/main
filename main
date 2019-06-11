@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <vector>
 #include <fstream>
+//#include "mario.h"
 
 using namespace std;
 
@@ -83,8 +84,8 @@ void Affine(SDL_Rect *perso,int tile_map[256][256],float vx,float vy);
 SDL_Texture* loadTexture(const char* fichier);
 void Load_tileset(Map* m);
 void RecupererVecteur(float*vx,float*vy,const Uint8 *state);
-void Move(int tile_map[256][256],SDL_Rect *perso,const Uint8 *keys,bool jump,float vx,float vy);
-void Jumping(SDL_Rect*perso,float *vy,const Uint8 *keys,bool jump);
+void Move(int tile_map[256][256],SDL_Rect *perso,const Uint8 *keys,float vx,float *vy);
+void Jumping(SDL_Rect*perso,float *vy,const Uint8 *keys,int tile_map[256][256]);
 int Sol(int tile_map[CACHE_SIZE][CACHE_SIZE],SDL_Rect*test);
 int ChangeTile(int type,const Uint8* keys);
 
@@ -139,10 +140,7 @@ int main( int argc, char * argv[] )
         int x, y;
         SDL_GetMouseState( &x, &y );
 
-        Y(&vitesse_perso_y);
-        cout<<vitesse_perso_y<<endl;
-
-        //Move(tile_map,&perso,state,jump,0,vitesse_perso_y);
+        Move(tile_map,&perso,state,vitesse_perso_x,&vitesse_perso_y);
 
         //Load_tileset(carte);
 
@@ -152,9 +150,9 @@ int main( int argc, char * argv[] )
         //cout<<tile_type<<endl;
         if (in.mouse[0]) tile_map[(y+camera.y)/TILE_SIZE][(x+camera.x)/TILE_SIZE]=tile_type;
         if (in.mouse[1]) map_platform[(y+camera.y)/TILE_SIZE][(x+camera.x)/TILE_SIZE]=in.tileType;
-        if (in.saveMap)
+        if (state[SDL_SCANCODE_C])
             if (!mapWrite(tile_map,NB_TILES_Y,NB_TILES_X,"map.txt")&&
-            !mapWrite(map_platform,NB_TILES_Y,NB_TILES_X,"platform.txt")) in.saveMap=false;
+            !mapWrite(map_platform,NB_TILES_Y,NB_TILES_X,"platform.txt")) break;
         //cout<<in.saveMap<<endl;
 
         SDL_SetRenderTarget(renderer, bgd1);
@@ -207,32 +205,29 @@ int main( int argc, char * argv[] )
     return 0;
 }
 
-void Jumping(SDL_Rect*perso,float *vy,const Uint8 *keys,bool jump)
+void Jumping(SDL_Rect*perso,float *vy,const Uint8 *keys,int tile_map[256][256])
 {
-    //bool stick_on_the_ground=Sol(tilemap,perso);
-    //*vy = 0;
-    *vy += 0.1;
-    if (keys[SDL_SCANCODE_UP]) jump=true;
+    bool stick_on_the_ground;
+    stick_on_the_ground=Sol(tile_map,perso);
 
-    /*if (jump)                                  // quand la touche espace est enfoncée le saut est enclanché
-       // if (stick_on_the_ground) *vy = -5;    // quand on est au sol
-        //else *vy += 0.1;                       // quand on est en l'air
+    if (keys[SDL_SCANCODE_UP]&&stick_on_the_ground) *vy = -3;
+    if (!stick_on_the_ground) *vy += 0.1;
     //else *vy = 2;
-    //if (*vy>=3) *vy = 3;*/
+    //if (*vy>=3) *vy = 3;
 }
 
-void Move(int tile_map[256][256],SDL_Rect *perso,const Uint8 *keys,bool jump,float vx,float vy)
+void Move(int tile_map[256][256],SDL_Rect *perso,const Uint8 *keys,float vx,float *vy)
 {
     //float vx,vy;
-    //RecupererVecteur(&vx,0,keys);
-    //Jumping(perso,&vy,keys,jump);
-    Y(&vy);
-    cout<<vy<<endl;
+    RecupererVecteur(&vx,0,keys);
+    Jumping(perso,vy,keys,tile_map);
+    //Y(vy);
+    //cout<<vy<<endl;
 
-    /*if (!EssaiDeplacement(tile_map,perso,vx,0))
+    if (!EssaiDeplacement(tile_map,perso,vx,0))
         Affine(perso,tile_map,vx,0);
-    if (!EssaiDeplacement(tile_map,perso,0,vy))
-        Affine(perso,tile_map,0,vy);*/
+    if (!EssaiDeplacement(tile_map,perso,0,*vy))
+        Affine(perso,tile_map,0,*vy);
 }
 
 int EssaiDeplacement(int tile_map[256][256],SDL_Rect *perso,float vx,float vy)
@@ -262,7 +257,7 @@ void Affine(SDL_Rect *perso,int tile_map[256][256],float vx,float vy)
 
 void RecupererVecteur(float*vx,float*vy,const Uint8 *state)
 {
-    *vx = 0;// *vy = 0;
+    //*vx = 0; *vy = 0;
     float vitesse = SPEED;
 
     if (state[SDL_SCANCODE_LEFT]) *vx += -vitesse;
@@ -276,9 +271,9 @@ int Sol(int tile_map[CACHE_SIZE][CACHE_SIZE],SDL_Rect*test)
     int xmin = (test->x)/32;
     int xmax = (test->x+test->w-1)/32;
     int ymin = (test->y)/32;
-    int ymax = (test->y+test->h-1)/32;
+    int ymax = (test->y+test->h)/32;
 
-    if(tile_map[xmin][ymax+1]>0||tile_map[xmax][ymax+1]>0) return 1;
+    if(tile_map[ymax][xmin]>0||tile_map[ymax][xmax]>0) return 1;
     return 0;
 }
 
@@ -318,8 +313,8 @@ int AfficherMap(Map* m,SDL_Texture* screen)
 
 bool BoxCollision(SDL_Rect box1, SDL_Rect box2)
 {
-    if((box2.x >= box1.x + box1.w)      // trop à droite
-    || (box2.x + box2.w <= box1.x)      // trop à gauche
+    if((box2.x >= box1.x + box1.w)      // trop ?droite
+    || (box2.x + box2.w <= box1.x)      // trop ?gauche
     || (box2.y >= box1.y + box1.h)      // trop en bas
     || (box2.y + box2.h <= box1.y))     // trop en haut
         return false;
